@@ -9,7 +9,6 @@ environment {
 }
 
 stages {
-
     stage('Checkout') {
         steps {
             checkout scm
@@ -36,11 +35,7 @@ stages {
             ]) {
                 sh '''
                     export AWS_DEFAULT_REGION=$AWS_REGION
-
-                    aws eks update-kubeconfig \
-                        --region $AWS_REGION \
-                        --name streamingapp-eks
-
+                    aws eks update-kubeconfig --region $AWS_REGION --name streamingapp-eks
                     kubectl get nodes
                 '''
             }
@@ -70,11 +65,7 @@ stages {
             ]) {
                 sh '''
                     export AWS_DEFAULT_REGION=$AWS_REGION
-
-                    aws ecr get-login-password --region $AWS_REGION | \
-                    docker login \
-                    --username AWS \
-                    --password-stdin $ECR_REGISTRY
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
                 '''
             }
         }
@@ -83,20 +74,11 @@ stages {
     stage('Push Images to ECR') {
         steps {
             sh '''
-                docker tag streamingapp-frontend:1.0 \
-                    $ECR_REGISTRY/streamingapp-frontend:1.0
-
-                docker tag streamingapp-auth:1.0 \
-                    $ECR_REGISTRY/streamingapp-auth:1.0
-
-                docker tag streamingapp-streaming:1.0 \
-                    $ECR_REGISTRY/streamingapp-streaming:1.0
-
-                docker tag streamingapp-admin:1.0 \
-                    $ECR_REGISTRY/streamingapp-admin:1.0
-
-                docker tag streamingapp-chat:1.0 \
-                    $ECR_REGISTRY/streamingapp-chat:1.0
+                docker tag streamingapp-frontend:1.0 $ECR_REGISTRY/streamingapp-frontend:1.0
+                docker tag streamingapp-auth:1.0 $ECR_REGISTRY/streamingapp-auth:1.0
+                docker tag streamingapp-streaming:1.0 $ECR_REGISTRY/streamingapp-streaming:1.0
+                docker tag streamingapp-admin:1.0 $ECR_REGISTRY/streamingapp-admin:1.0
+                docker tag streamingapp-chat:1.0 $ECR_REGISTRY/streamingapp-chat:1.0
 
                 docker push $ECR_REGISTRY/streamingapp-frontend:1.0
                 docker push $ECR_REGISTRY/streamingapp-auth:1.0
@@ -107,5 +89,6 @@ stages {
         }
     }
 }
+```
 
 }
