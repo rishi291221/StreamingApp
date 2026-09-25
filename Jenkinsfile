@@ -107,4 +107,3 @@ pipeline {
         }
     }
 }
-'@ | Set-Content .\Jenkinsfile
