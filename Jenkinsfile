@@ -25,6 +25,28 @@ pipeline {
             }
         }
 
+        stage('Check EKS Access') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+                    sh '''
+                        export AWS_DEFAULT_REGION=$AWS_REGION
+
+                        aws eks update-kubeconfig \
+                            --region $AWS_REGION \
+                            --name streamingapp-eks
+
+                        kubectl get nodes
+                    '''
+                }
+            }
+        }
+
         stage('Build Docker Images') {
             steps {
                 sh '''
@@ -78,5 +100,12 @@ pipeline {
 
                     docker push $ECR_REGISTRY/streamingapp-frontend:1.0
                     docker push $ECR_REGISTRY/streamingapp-auth:1.0
-                    docker push $ECR_REGISTRY/streamingapp-st_
+                    docker push $ECR_REGISTRY/streamingapp-streaming:1.0
+                    docker push $ECR_REGISTRY/streamingapp-admin:1.0
+                    docker push $ECR_REGISTRY/streamingapp-chat:1.0
+                '''
+            }
+        }
+    }
+}
 ```
