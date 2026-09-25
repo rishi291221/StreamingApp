@@ -1,3 +1,4 @@
+```groovy
 pipeline {
     agent any
 
@@ -12,6 +13,15 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+
+        stage('Check Kubernetes Tools') {
+            steps {
+                sh '''
+                    kubectl version --client
+                    helm version
+                '''
             }
         }
 
@@ -68,11 +78,5 @@ pipeline {
 
                     docker push $ECR_REGISTRY/streamingapp-frontend:1.0
                     docker push $ECR_REGISTRY/streamingapp-auth:1.0
-                    docker push $ECR_REGISTRY/streamingapp-streaming:1.0
-                    docker push $ECR_REGISTRY/streamingapp-admin:1.0
-                    docker push $ECR_REGISTRY/streamingapp-chat:1.0
-                '''
-            }
-        }
-    }
-}
+                    docker push $ECR_REGISTRY/streamingapp-st_
+```
