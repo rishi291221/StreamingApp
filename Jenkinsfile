@@ -6,138 +6,103 @@ pipeline {
         skipDefaultCheckout(true)
         disableConcurrentBuilds()
         timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
     environment {
-
-        // ============================================================
-        // AWS
-        // ============================================================
-
         AWS_REGION = 'us-east-1'
+        AWS_ACCOUNT_ID = '909884060498'
+        ECR_REGISTRY = '909884060498.dkr.ecr.us-east-1.amazonaws.com'
 
-        // StreamingApp AWS account
-        AWS_ACCOUNT_ID = '206226812351'
+        EKS_CLUSTER = 'streaming-eks'
+        K8S_NAMESPACE = 'streaming'
 
-        ECR_REGISTRY = '206226812351.dkr.ecr.us-east-1.amazonaws.com'
-
-
-        // ============================================================
-        // EKS
-        // ============================================================
-
-        EKS_CLUSTER = 'streamingapp-eks'
-
-        K8S_NAMESPACE = 'streamingapp'
-
+        // Existing Helm release is stored in default.
         HELM_NAMESPACE = 'default'
-
-        HELM_RELEASE = 'streamingapp'
-
-
-        // ============================================================
-        // Image Tag
-        // ============================================================
+        HELM_RELEASE = 'streaming-app'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
-
-
-        // ============================================================
-        // Kubernetes configuration
-        // ============================================================
-
         KUBECONFIG = "${WORKSPACE}/.kube/config"
     }
 
-
     stages {
 
-
-        // ============================================================
-        // 1. CHECKOUT
-        // ============================================================
-
         stage('Checkout') {
-
             steps {
-
                 deleteDir()
-
                 checkout scm
 
                 sh '''
-                    set -e
+                    set -eu
 
-                    echo "========================================"
-                    echo "Repository checkout completed"
-                    echo "========================================"
+                    echo "===== SOURCE CHECKOUT ====="
+                    pwd
+                    git log -1 --oneline
 
-                    echo ""
-                    echo "Git commit:"
-                    git rev-parse --short HEAD
+                    echo "Checking for unresolved merge markers..."
 
-                    echo ""
-                    echo "Git branch:"
-                    git branch --show-current || true
-
-                    echo ""
-                    echo "Repository structure:"
-                    find . -maxdepth 4 -type f | sort
+                    if grep -R \
+                        --exclude-dir=.git \
+                        -E '^(<<<<<<<|=======|>>>>>>>)' .; then
+                        echo "ERROR: Unresolved Git merge markers found."
+                        exit 1
+                    fi
                 '''
             }
         }
 
+        stage('Verify Project') {
+            steps {
+                sh '''
+                    set -eu
 
-        // ============================================================
-        // 2. VERIFY TOOLS
-        // ============================================================
+                    echo "===== VERIFY PROJECT STRUCTURE ====="
+
+                    test -d backend/authService
+                    test -d backend/adminService
+                    test -d backend/chatService
+                    test -d backend/streamingService
+                    test -d frontend
+
+                    CHART_FILE=$(find . \
+                        -type f \
+                        -path '*/streaming-app/Chart.yaml' \
+                        | head -n 1)
+
+                    if [ -z "$CHART_FILE" ]; then
+                        echo "ERROR: streaming-app/Chart.yaml was not found."
+                        find . -type f -name Chart.yaml -print || true
+                        exit 1
+                    fi
+
+                    CHART_DIR=$(dirname "$CHART_FILE")
+
+                    test -f "$CHART_DIR/values.yaml"
+                    test -d "$CHART_DIR/templates"
+
+                    echo "Helm chart found at: $CHART_DIR"
+                '''
+            }
+        }
 
         stage('Verify Tools') {
-
             steps {
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    echo "========================================"
-                    echo "Checking required tools"
-                    echo "========================================"
+                    echo "===== TOOL VERSIONS ====="
 
-                    echo ""
-                    echo "Docker:"
-                    docker --version
-
-                    echo ""
-                    echo "AWS CLI:"
-                    aws --version
-
-                    echo ""
-                    echo "Kubectl:"
-                    kubectl version --client
-
-                    echo ""
-                    echo "Helm:"
-                    helm version
-
-                    echo ""
-                    echo "Git:"
                     git --version
-
-                    echo ""
-                    echo "All required tools are available."
+                    docker --version
+                    aws --version
+                    kubectl version --client
+                    helm version
                 '''
             }
         }
 
-
-        // ============================================================
-        // 3. AWS LOGIN + ECR LOGIN
-        // ============================================================
-
-        stage('AWS And ECR Login') {
-
+        stage('AWS Identity And ECR Login') {
             steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
@@ -145,18 +110,12 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                        set -e
-
-                        echo "========================================"
-                        echo "AWS authentication"
-                        echo "========================================"
+                        set -eu
 
                         unset AWS_SESSION_TOKEN
 
-                        echo ""
-                        echo "Checking AWS identity..."
+                        echo "===== VERIFY AWS IDENTITY ====="
 
                         aws sts get-caller-identity
 
@@ -164,28 +123,13 @@ pipeline {
                             --query Account \
                             --output text)
 
-                        echo ""
-                        echo "Expected AWS account: $AWS_ACCOUNT_ID"
-                        echo "Current AWS account:  $CURRENT_ACCOUNT"
-
                         if [ "$CURRENT_ACCOUNT" != "$AWS_ACCOUNT_ID" ]; then
-
-                            echo ""
-                            echo "ERROR: Wrong AWS account."
-                            echo "Expected: $AWS_ACCOUNT_ID"
-                            echo "Actual:   $CURRENT_ACCOUNT"
-
+                            echo "ERROR: Jenkins authenticated to AWS account $CURRENT_ACCOUNT"
+                            echo "Expected AWS account: $AWS_ACCOUNT_ID"
                             exit 1
                         fi
 
-                        echo ""
-                        echo "AWS account verified successfully."
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Logging into ECR"
-                        echo "========================================"
+                        echo "===== ECR LOGIN ====="
 
                         aws ecr get-login-password \
                             --region "$AWS_REGION" |
@@ -193,22 +137,14 @@ pipeline {
                             --username AWS \
                             --password-stdin "$ECR_REGISTRY"
 
-                        echo ""
-                        echo "ECR login successful."
+                        echo "AWS identity and ECR login verified."
                     '''
                 }
             }
         }
 
-
-        // ============================================================
-        // 4. VERIFY ECR REPOSITORIES
-        // ============================================================
-
         stage('Verify ECR Repositories') {
-
             steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
@@ -216,201 +152,65 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                        set -e
+                        set -eu
 
                         unset AWS_SESSION_TOKEN
 
-                        echo "========================================"
-                        echo "Checking ECR repositories"
-                        echo "========================================"
-
-
                         for REPOSITORY in \
-                            streamingapp-auth \
-                            streamingapp-admin \
-                            streamingapp-chat \
-                            streamingapp-streaming \
-                            streamingapp-frontend
+                            streaming-auth \
+                            streaming-admin \
+                            streaming-chat \
+                            streaming-stream \
+                            streaming-frontend
                         do
-
-                            echo ""
-                            echo "Checking: $REPOSITORY"
+                            echo "Checking ECR repository: $REPOSITORY"
 
                             aws ecr describe-repositories \
                                 --repository-names "$REPOSITORY" \
                                 --region "$AWS_REGION" \
                                 >/dev/null
-
-                            echo "OK: $REPOSITORY"
-
                         done
 
-
-                        echo ""
                         echo "All required ECR repositories exist."
                     '''
                 }
             }
         }
 
-
-        // ============================================================
-        // 5. BUILD DOCKER IMAGES
-        // ============================================================
-
         stage('Build Images') {
-
             steps {
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    echo "========================================"
-                    echo "Building Docker images"
-                    echo "========================================"
-
-                    echo ""
+                    echo "===== BUILD DOCKER IMAGES ====="
                     echo "Image tag: $IMAGE_TAG"
 
-
-                    echo ""
-                    echo "Building Auth service..."
-
                     docker build \
-                        -t streamingapp-auth:$IMAGE_TAG \
+                        -t streaming-auth:"$IMAGE_TAG" \
                         backend/authService
 
-
-                    echo ""
-                    echo "Building Admin service..."
-
                     docker build \
-                        -t streamingapp-admin:$IMAGE_TAG \
+                        -t streaming-admin:"$IMAGE_TAG" \
                         backend/adminService
 
-
-                    echo ""
-                    echo "Building Chat service..."
-
                     docker build \
-                        -t streamingapp-chat:$IMAGE_TAG \
+                        -t streaming-chat:"$IMAGE_TAG" \
                         backend/chatService
 
-
-                    echo ""
-                    echo "Building Streaming service..."
-
                     docker build \
-                        -t streamingapp-streaming:$IMAGE_TAG \
+                        -t streaming-stream:"$IMAGE_TAG" \
                         backend/streamingService
 
-
-                    echo ""
-                    echo "Building Frontend..."
-
                     docker build \
-                        -t streamingapp-frontend:$IMAGE_TAG \
+                        -t streaming-frontend:"$IMAGE_TAG" \
                         frontend
-
-
-                    echo ""
-                    echo "========================================"
-                    echo "Docker images created"
-                    echo "========================================"
-
-                    docker images | grep -E \
-                        'streamingapp-(auth|admin|chat|streaming|frontend)'
                 '''
             }
         }
-
-
-        // ============================================================
-        // 6. TAG + PUSH IMAGES TO ECR
-        // ============================================================
 
         stage('Tag And Push Images') {
-
             steps {
-
-                sh '''
-                    set -e
-
-                    echo "========================================"
-                    echo "Tagging images"
-                    echo "========================================"
-
-
-                    docker tag \
-                        streamingapp-auth:$IMAGE_TAG \
-                        $ECR_REGISTRY/streamingapp-auth:$IMAGE_TAG
-
-
-                    docker tag \
-                        streamingapp-admin:$IMAGE_TAG \
-                        $ECR_REGISTRY/streamingapp-admin:$IMAGE_TAG
-
-
-                    docker tag \
-                        streamingapp-chat:$IMAGE_TAG \
-                        $ECR_REGISTRY/streamingapp-chat:$IMAGE_TAG
-
-
-                    docker tag \
-                        streamingapp-streaming:$IMAGE_TAG \
-                        $ECR_REGISTRY/streamingapp-streaming:$IMAGE_TAG
-
-
-                    docker tag \
-                        streamingapp-frontend:$IMAGE_TAG \
-                        $ECR_REGISTRY/streamingapp-frontend:$IMAGE_TAG
-
-
-                    echo ""
-                    echo "========================================"
-                    echo "Pushing images to ECR"
-                    echo "========================================"
-
-
-                    docker push \
-                        $ECR_REGISTRY/streamingapp-auth:$IMAGE_TAG
-
-
-                    docker push \
-                        $ECR_REGISTRY/streamingapp-admin:$IMAGE_TAG
-
-
-                    docker push \
-                        $ECR_REGISTRY/streamingapp-chat:$IMAGE_TAG
-
-
-                    docker push \
-                        $ECR_REGISTRY/streamingapp-streaming:$IMAGE_TAG
-
-
-                    docker push \
-                        $ECR_REGISTRY/streamingapp-frontend:$IMAGE_TAG
-
-
-                    echo ""
-                    echo "========================================"
-                    echo "All images pushed successfully"
-                    echo "========================================"
-                '''
-            }
-        }
-
-
-        // ============================================================
-        // 7. CONFIGURE EKS
-        // ============================================================
-
-        stage('Configure EKS') {
-
-            steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
@@ -418,199 +218,84 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                        set -e
+                        set -eu
 
                         unset AWS_SESSION_TOKEN
 
-                        echo "========================================"
-                        echo "Configuring EKS"
-                        echo "========================================"
+                        echo "===== REFRESH ECR LOGIN ====="
 
+                        aws ecr get-login-password \
+                            --region "$AWS_REGION" |
+                        docker login \
+                            --username AWS \
+                            --password-stdin "$ECR_REGISTRY"
 
-                        mkdir -p "$(dirname "$KUBECONFIG")"
+                        echo "===== TAG IMAGES ====="
 
+                        docker tag \
+                            streaming-auth:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
 
-                        aws eks update-kubeconfig \
-                            --region "$AWS_REGION" \
-                            --name "$EKS_CLUSTER" \
-                            --kubeconfig "$KUBECONFIG"
+                        docker tag \
+                            streaming-admin:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
 
+                        docker tag \
+                            streaming-chat:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
 
-                        echo ""
-                        echo "Current Kubernetes context:"
+                        docker tag \
+                            streaming-stream:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
 
-                        kubectl config current-context
+                        docker tag \
+                            streaming-frontend:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
 
+                        echo "===== PUSH IMAGES ====="
 
-                        echo ""
-                        echo "EKS nodes:"
+                        docker push \
+                            "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
 
-                        kubectl get nodes -o wide
+                        docker push \
+                            "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
 
+                        docker push \
+                            "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
 
-                        echo ""
-                        echo "EKS connection successful."
+                        docker push \
+                            "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
                     '''
                 }
             }
         }
 
-
-        // ============================================================
-        // 8. FIND HELM CHART
-        // ============================================================
-
-        stage('Find Helm Chart') {
-
-            steps {
-
-                sh '''
-                    set -e
-
-                    echo "========================================"
-                    echo "Searching for Helm Chart"
-                    echo "========================================"
-
-
-                    CHART_COUNT=$(find . \
-                        -type f \
-                        -name 'Chart.yaml' \
-                        -not -path './.git/*' \
-                        | wc -l)
-
-
-                    echo ""
-                    echo "Chart.yaml files found: $CHART_COUNT"
-
-
-                    if [ "$CHART_COUNT" -eq 0 ]; then
-
-                        echo ""
-                        echo "ERROR: No Helm Chart.yaml found."
-
-                        echo ""
-                        echo "Repository files:"
-
-                        find . \
-                            -maxdepth 6 \
-                            -type f \
-                            -not -path './.git/*' \
-                            | sort
-
-                        exit 1
-                    fi
-
-
-                    if [ "$CHART_COUNT" -gt 1 ]; then
-
-                        echo ""
-                        echo "WARNING: Multiple Helm charts found:"
-
-                        find . \
-                            -type f \
-                            -name 'Chart.yaml' \
-                            -not -path './.git/*' \
-                            | sort
-
-                        echo ""
-                        echo "The first chart will be used."
-                    fi
-
-
-                    CHART_FILE=$(find . \
-                        -type f \
-                        -name 'Chart.yaml' \
-                        -not -path './.git/*' \
-                        | sort \
-                        | head -n 1)
-
-
-                    if [ -z "$CHART_FILE" ]; then
-
-                        echo "ERROR: Could not determine Helm chart."
-
-                        exit 1
-                    fi
-
-
-                    CHART_DIR=$(dirname "$CHART_FILE")
-
-
-                    echo ""
-                    echo "Helm Chart:"
-                    echo "$CHART_FILE"
-
-                    echo ""
-                    echo "Helm Chart Directory:"
-                    echo "$CHART_DIR"
-
-                    echo ""
-                    echo "Helm chart contents:"
-
-                    find "$CHART_DIR" \
-                        -maxdepth 3 \
-                        -type f \
-                        | sort
-
-
-                    echo ""
-                    echo "Helm chart discovery successful."
-                '''
-            }
-        }
-
-
-        // ============================================================
-        // 9. VALIDATE HELM
-        // ============================================================
-
         stage('Validate Helm Chart') {
-
             steps {
-
                 sh '''
-                    set -e
+                    set -eu
 
-                    echo "========================================"
-                    echo "Validating Helm Chart"
-                    echo "========================================"
-
+                    echo "===== VALIDATE HELM CHART ====="
 
                     CHART_FILE=$(find . \
                         -type f \
-                        -name 'Chart.yaml' \
-                        -not -path './.git/*' \
-                        | sort \
+                        -path '*/streaming-app/Chart.yaml' \
                         | head -n 1)
 
-
                     if [ -z "$CHART_FILE" ]; then
-
-                        echo "ERROR: Chart.yaml not found."
-
+                        echo "ERROR: streaming-app/Chart.yaml was not found."
                         exit 1
                     fi
 
-
                     CHART_DIR=$(dirname "$CHART_FILE")
 
-
-                    echo ""
-                    echo "Chart directory:"
-                    echo "$CHART_DIR"
-
-
-                    echo ""
-                    echo "Running Helm lint..."
+                    echo "Chart directory: $CHART_DIR"
 
                     helm lint "$CHART_DIR"
-
-
-                    echo ""
-                    echo "Rendering Helm templates..."
-
 
                     helm template \
                         "$HELM_RELEASE" \
@@ -621,36 +306,17 @@ pipeline {
                         --set-string chat.tag="$IMAGE_TAG" \
                         --set-string streaming.tag="$IMAGE_TAG" \
                         --set-string frontend.tag="$IMAGE_TAG" \
-                        >/tmp/streamingapp-rendered.yaml
+                        > rendered-streaming-app.yaml
 
+                    test -s rendered-streaming-app.yaml
 
-                    echo ""
-                    echo "Helm template rendered successfully."
-
-
-                    echo ""
-                    echo "Checking rendered images..."
-
-                    grep -E \
-                        'image:.*streamingapp-' \
-                        /tmp/streamingapp-rendered.yaml || true
-
-
-                    echo ""
-                    echo "Helm validation successful."
+                    echo "Helm chart validation passed."
                 '''
             }
         }
 
-
-        // ============================================================
-        // 10. DEPLOY APPLICATION WITH HELM
-        // ============================================================
-
         stage('Deploy To EKS') {
-
             steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
@@ -658,64 +324,122 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                        set -e
+                        set -eu
 
                         unset AWS_SESSION_TOKEN
 
-                        echo "========================================"
-                        echo "Deploying StreamingApp to EKS"
-                        echo "========================================"
+                        echo "===== CONFIGURE EKS ACCESS ====="
 
+                        mkdir -p "$(dirname "$KUBECONFIG")"
+
+                        aws sts get-caller-identity
+
+                        aws eks update-kubeconfig \
+                            --region "$AWS_REGION" \
+                            --name "$EKS_CLUSTER" \
+                            --kubeconfig "$KUBECONFIG"
+
+                        kubectl cluster-info
+                        kubectl get nodes
+
+                        echo "===== LOCATE HELM CHART ====="
 
                         CHART_FILE=$(find . \
                             -type f \
-                            -name 'Chart.yaml' \
-                            -not -path './.git/*' \
-                            | sort \
+                            -path '*/streaming-app/Chart.yaml' \
                             | head -n 1)
 
-
                         if [ -z "$CHART_FILE" ]; then
-
-                            echo "ERROR: Helm Chart.yaml was not found."
-
+                            echo "ERROR: streaming-app/Chart.yaml was not found."
                             exit 1
                         fi
 
-
                         CHART_DIR=$(dirname "$CHART_FILE")
 
+                        echo "Chart directory: $CHART_DIR"
+                        echo "Image tag: $IMAGE_TAG"
 
-                        echo ""
-                        echo "Chart:     $CHART_DIR"
-                        echo "Release:   $HELM_RELEASE"
-                        echo "Namespace: $HELM_NAMESPACE"
-                        echo "Tag:       $IMAGE_TAG"
-
+                        echo "===== HELM DEPLOYMENT ====="
 
                         helm upgrade \
                             --install \
                             "$HELM_RELEASE" \
                             "$CHART_DIR" \
                             --namespace "$HELM_NAMESPACE" \
-                            --create-namespace \
                             --set-string auth.tag="$IMAGE_TAG" \
                             --set-string admin.tag="$IMAGE_TAG" \
                             --set-string chat.tag="$IMAGE_TAG" \
                             --set-string streaming.tag="$IMAGE_TAG" \
                             --set-string frontend.tag="$IMAGE_TAG" \
                             --atomic \
-                            --timeout 10m \
-                            --wait
+                            --wait \
+                            --timeout 10m
 
+                        helm status \
+                            "$HELM_RELEASE" \
+                            --namespace "$HELM_NAMESPACE"
+                    '''
+                }
+            }
+        }
 
-                        echo ""
-                        echo "========================================"
-                        echo "Helm deployment completed"
-                        echo "========================================"
+        stage('Verify Deployment') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
 
+                        unset AWS_SESSION_TOKEN
+
+                        echo "===== REFRESH EKS ACCESS ====="
+
+                        mkdir -p "$(dirname "$KUBECONFIG")"
+
+                        aws eks update-kubeconfig \
+                            --region "$AWS_REGION" \
+                            --name "$EKS_CLUSTER" \
+                            --kubeconfig "$KUBECONFIG"
+
+                        echo "===== VERIFY ROLLOUTS ====="
+
+                        for DEPLOYMENT in \
+                            auth \
+                            admin \
+                            chat \
+                            streaming \
+                            frontend
+                        do
+                            kubectl rollout status \
+                                deployment/"$DEPLOYMENT" \
+                                --namespace "$K8S_NAMESPACE" \
+                                --timeout=5m
+                        done
+
+                        echo "===== PODS ====="
+
+                        kubectl get pods \
+                            --namespace "$K8S_NAMESPACE" \
+                            -o wide
+
+                        echo "===== SERVICES ====="
+
+                        kubectl get services \
+                            --namespace "$K8S_NAMESPACE"
+
+                        echo "===== DEPLOYED IMAGES ====="
+
+                        kubectl get deployments \
+                            --namespace "$K8S_NAMESPACE" \
+                            -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
+
+                        echo "===== HELM RELEASE ====="
 
                         helm list \
                             --namespace "$HELM_NAMESPACE"
@@ -723,452 +447,52 @@ pipeline {
                 }
             }
         }
-
-
-        // ============================================================
-        // 11. CHANGE FRONTEND SERVICE TO LOADBALANCER
-        // ============================================================
-
-        stage('Configure Frontend LoadBalancer') {
-
-            steps {
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-
-                    sh '''
-                        set -e
-
-                        unset AWS_SESSION_TOKEN
-
-                        echo "========================================"
-                        echo "Configuring Frontend LoadBalancer"
-                        echo "========================================"
-
-
-                        echo ""
-                        echo "Current services:"
-
-                        kubectl get services \
-                            -n "$K8S_NAMESPACE"
-
-
-                        echo ""
-                        echo "Changing frontend service to LoadBalancer..."
-
-
-                        kubectl patch service frontend \
-                            -n "$K8S_NAMESPACE" \
-                            --type='merge' \
-                            -p '{"spec":{"type":"LoadBalancer"}}'
-
-
-                        echo ""
-                        echo "Frontend service updated."
-
-
-                        echo ""
-                        echo "Frontend service:"
-
-                        kubectl get service frontend \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-                    '''
-                }
-            }
-        }
-
-
-        // ============================================================
-        // 12. WAIT FOR LOADBALANCER
-        // ============================================================
-
-        stage('Wait For LoadBalancer') {
-
-            steps {
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-
-                    sh '''
-                        set -e
-
-                        echo "========================================"
-                        echo "Waiting for AWS LoadBalancer"
-                        echo "========================================"
-
-
-                        MAX_ATTEMPTS=30
-                        ATTEMPT=1
-
-
-                        while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]
-                        do
-
-                            echo ""
-                            echo "Attempt $ATTEMPT of $MAX_ATTEMPTS"
-
-
-                            LB_HOSTNAME=$(kubectl get service frontend \
-                                -n "$K8S_NAMESPACE" \
-                                -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
-                                2>/dev/null || true)
-
-
-                            LB_IP=$(kubectl get service frontend \
-                                -n "$K8S_NAMESPACE" \
-                                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' \
-                                2>/dev/null || true)
-
-
-                            if [ -n "$LB_HOSTNAME" ]; then
-
-                                echo ""
-                                echo "========================================"
-                                echo "LOAD BALANCER READY"
-                                echo "========================================"
-
-                                echo ""
-                                echo "LoadBalancer hostname:"
-                                echo "$LB_HOSTNAME"
-
-                                echo ""
-                                echo "Application URL:"
-                                echo "http://$LB_HOSTNAME"
-
-                                exit 0
-                            fi
-
-
-                            if [ -n "$LB_IP" ]; then
-
-                                echo ""
-                                echo "========================================"
-                                echo "LOAD BALANCER READY"
-                                echo "========================================"
-
-                                echo ""
-                                echo "LoadBalancer IP:"
-                                echo "$LB_IP"
-
-                                echo ""
-                                echo "Application URL:"
-                                echo "http://$LB_IP"
-
-                                exit 0
-                            fi
-
-
-                            echo "LoadBalancer is still provisioning..."
-
-                            kubectl get service frontend \
-                                -n "$K8S_NAMESPACE" \
-                                -o wide || true
-
-
-                            sleep 20
-
-                            ATTEMPT=$((ATTEMPT + 1))
-
-                        done
-
-
-                        echo ""
-                        echo "ERROR: LoadBalancer was not ready within expected time."
-
-                        echo ""
-                        echo "Frontend service details:"
-
-                        kubectl describe service frontend \
-                            -n "$K8S_NAMESPACE" || true
-
-
-                        exit 1
-                    '''
-                }
-            }
-        }
-
-
-        // ============================================================
-        // 13. VERIFY DEPLOYMENT
-        // ============================================================
-
-        stage('Verify Deployment') {
-
-            steps {
-
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-
-                    sh '''
-                        set -e
-
-                        unset AWS_SESSION_TOKEN
-
-                        echo "========================================"
-                        echo "Verifying Kubernetes deployment"
-                        echo "========================================"
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Deployments"
-                        echo "========================================"
-
-                        kubectl get deployments \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Pods"
-                        echo "========================================"
-
-                        kubectl get pods \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Services"
-                        echo "========================================"
-
-                        kubectl get services \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Rollout status"
-                        echo "========================================"
-
-
-                        kubectl rollout status \
-                            deployment/auth \
-                            -n "$K8S_NAMESPACE" \
-                            --timeout=5m
-
-
-                        kubectl rollout status \
-                            deployment/admin \
-                            -n "$K8S_NAMESPACE" \
-                            --timeout=5m
-
-
-                        kubectl rollout status \
-                            deployment/chat \
-                            -n "$K8S_NAMESPACE" \
-                            --timeout=5m
-
-
-                        kubectl rollout status \
-                            deployment/streaming \
-                            -n "$K8S_NAMESPACE" \
-                            --timeout=5m
-
-
-                        kubectl rollout status \
-                            deployment/frontend \
-                            -n "$K8S_NAMESPACE" \
-                            --timeout=5m
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Final Application Status"
-                        echo "========================================"
-
-
-                        kubectl get pods \
-                            -n "$K8S_NAMESPACE"
-
-
-                        echo ""
-                        kubectl get services \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Frontend LoadBalancer"
-                        echo "========================================"
-
-
-                        kubectl get service frontend \
-                            -n "$K8S_NAMESPACE" \
-                            -o wide
-
-
-                        LB_HOSTNAME=$(kubectl get service frontend \
-                            -n "$K8S_NAMESPACE" \
-                            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' \
-                            2>/dev/null || true)
-
-
-                        LB_IP=$(kubectl get service frontend \
-                            -n "$K8S_NAMESPACE" \
-                            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' \
-                            2>/dev/null || true)
-
-
-                        if [ -n "$LB_HOSTNAME" ]; then
-
-                            echo ""
-                            echo "========================================"
-                            echo "APPLICATION URL"
-                            echo "========================================"
-
-                            echo "http://$LB_HOSTNAME"
-
-                        elif [ -n "$LB_IP" ]; then
-
-                            echo ""
-                            echo "========================================"
-                            echo "APPLICATION URL"
-                            echo "========================================"
-
-                            echo "http://$LB_IP"
-
-                        else
-
-                            echo ""
-                            echo "WARNING: LoadBalancer hostname/IP not available."
-
-                        fi
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Helm Release"
-                        echo "========================================"
-
-                        helm list \
-                            -n "$HELM_NAMESPACE"
-
-
-                        echo ""
-                        echo "========================================"
-                        echo "Deployment verification successful"
-                        echo "========================================"
-                    '''
-                }
-            }
-        }
     }
-
-
-    // ================================================================
-    // POST ACTIONS
-    // ================================================================
 
     post {
 
-
         success {
-
             echo """
 ========================================
-STREAMINGAPP DEPLOYMENT SUCCESSFUL
+DEPLOYMENT SUCCESSFUL
 ========================================
-
-Image tag:  ${IMAGE_TAG}
-EKS:        ${EKS_CLUSTER}
-Namespace:  ${K8S_NAMESPACE}
-Helm:       ${HELM_RELEASE}
-
-The application was successfully deployed.
-The frontend LoadBalancer was configured.
+AWS account    : ${AWS_ACCOUNT_ID}
+EKS cluster    : ${EKS_CLUSTER}
+Image tag      : ${IMAGE_TAG}
+Application NS : ${K8S_NAMESPACE}
+Helm release   : ${HELM_RELEASE}
+Helm namespace : ${HELM_NAMESPACE}
 ========================================
 """
         }
-
 
         failure {
-
-            echo """
-========================================
-STREAMINGAPP DEPLOYMENT FAILED
-========================================
-
-Check the FIRST failed stage in the Jenkins Console.
-
-Important areas to check:
-
-1. AWS credentials
-2. ECR repositories
-3. Docker build
-4. ECR push
-5. EKS connection
-6. Helm validation
-7. Helm deployment
-8. Kubernetes pods
-9. Frontend LoadBalancer
-
-========================================
-"""
+            echo 'Deployment failed. Check the first failed Jenkins stage.'
         }
 
-
         always {
-
             sh '''
-                echo "========================================"
-                echo "Cleaning up"
-                echo "========================================"
-
-
                 docker logout "$ECR_REGISTRY" || true
 
-
-                echo ""
-                echo "Removing local build images..."
-
-
                 docker rmi \
-                    streamingapp-auth:$IMAGE_TAG \
-                    streamingapp-admin:$IMAGE_TAG \
-                    streamingapp-chat:$IMAGE_TAG \
-                    streamingapp-streaming:$IMAGE_TAG \
-                    streamingapp-frontend:$IMAGE_TAG \
+                    streaming-auth:"$IMAGE_TAG" \
+                    streaming-admin:"$IMAGE_TAG" \
+                    streaming-chat:"$IMAGE_TAG" \
+                    streaming-stream:"$IMAGE_TAG" \
+                    streaming-frontend:"$IMAGE_TAG" \
+                    "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG" \
+                    "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG" \
+                    "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG" \
+                    "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG" \
+                    "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG" \
                     2>/dev/null || true
-
-
-                echo ""
-                echo "Removing ECR-tagged local images..."
-
-
-                docker rmi \
-                    $ECR_REGISTRY/streamingapp-auth:$IMAGE_TAG \
-                    $ECR_REGISTRY/streamingapp-admin:$IMAGE_TAG \
-                    $ECR_REGISTRY/streamingapp-chat:$IMAGE_TAG \
-                    $ECR_REGISTRY/streamingapp-streaming:$IMAGE_TAG \
-                    $ECR_REGISTRY/streamingapp-frontend:$IMAGE_TAG \
-                    2>/dev/null || true
-
-
-                echo ""
-                echo "Cleanup completed."
             '''
+
+            archiveArtifacts(
+                artifacts: 'rendered-streaming-app.yaml',
+                allowEmptyArchive: true
+            )
         }
     }
 }
+``
