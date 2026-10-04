@@ -8,7 +8,6 @@ pipeline {
         EKS_CLUSTER = 'streaming-eks'
 
         IMAGE_TAG = '1.0.0'
-
         ECR_REGISTRY = '909884060498.dkr.ecr.us-east-1.amazonaws.com'
     }
 
@@ -40,9 +39,7 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                    echo "===== AWS ACCOUNT ====="
                     aws sts get-caller-identity
                     '''
                 }
@@ -58,16 +55,8 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                    echo "===== ECR LOGIN ====="
-
-                    aws ecr get-login-password \
-                    --region ${AWS_REGION} | \
-                    docker login \
-                    --username AWS \
-                    --password-stdin \
-                    ${ECR_REGISTRY}
+                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                     '''
                 }
             }
@@ -77,13 +66,9 @@ pipeline {
             steps {
                 sh '''
                 docker build -t streaming-auth:${IMAGE_TAG} backend/authService
-
                 docker build -t streaming-admin:${IMAGE_TAG} backend/adminService
-
                 docker build -t streaming-chat:${IMAGE_TAG} backend/chatService
-
                 docker build -t streaming-stream:${IMAGE_TAG} backend/streamingService
-
                 docker build -t streaming-frontend:${IMAGE_TAG} frontend
                 '''
             }
@@ -93,13 +78,9 @@ pipeline {
             steps {
                 sh '''
                 docker tag streaming-auth:${IMAGE_TAG} ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG}
-
                 docker tag streaming-admin:${IMAGE_TAG} ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG}
-
                 docker tag streaming-chat:${IMAGE_TAG} ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG}
-
                 docker tag streaming-stream:${IMAGE_TAG} ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG}
-
                 docker tag streaming-frontend:${IMAGE_TAG} ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG}
                 '''
             }
@@ -109,13 +90,9 @@ pipeline {
             steps {
                 sh '''
                 docker push ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG}
-
                 docker push ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG}
-
                 docker push ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG}
-
                 docker push ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG}
-
                 docker push ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG}
                 '''
             }
@@ -130,12 +107,8 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )
                 ]) {
-
                     sh '''
-                    aws eks update-kubeconfig \
-                    --region ${AWS_REGION} \
-                    --name ${EKS_CLUSTER}
-
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER}
                     kubectl get nodes
                     '''
                 }
@@ -145,13 +118,8 @@ pipeline {
         stage('Locate Helm Chart') {
             steps {
                 sh '''
-                echo "===== WORKSPACE ====="
-
                 pwd
-
                 find . -name Chart.yaml
-
-                ls -R
                 '''
             }
         }
@@ -159,6 +127,29 @@ pipeline {
         stage('Deploy Helm') {
             steps {
                 sh '''
-                cd stream/helm/streaming-app || true
+                helm upgrade --install streaming-app .
+                '''
+            }
+        }
 
-                helm upgrade
+        stage('Verify Deployment') {
+            steps {
+                sh '''
+                kubectl get pods -n streaming
+                kubectl get svc -n streaming
+                helm list -A
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Streaming application deployed successfully'
+        }
+
+        failure {
+            echo 'Deployment failed - check Jenkins console output'
+        }
+    }
+}
