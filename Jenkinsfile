@@ -30,7 +30,7 @@ pipeline {
 
         K8S_NAMESPACE = 'streamingapp'
 
-        HELM_NAMESPACE = 'streamingapp'
+        HELM_NAMESPACE = 'default'
 
         HELM_RELEASE = 'streamingapp'
 
