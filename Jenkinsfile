@@ -7,12 +7,6 @@ pipeline {
         ACCOUNT_ID = '909884060498'
         EKS_CLUSTER = 'streaming-eks'
 
-        AUTH_REPO = 'streaming-auth'
-        ADMIN_REPO = 'streaming-admin'
-        CHAT_REPO = 'streaming-chat'
-        STREAM_REPO = 'streaming-stream'
-        FRONTEND_REPO = 'streaming-frontend'
-
         IMAGE_TAG = '1.0.0'
 
         ECR_REGISTRY = '909884060498.dkr.ecr.us-east-1.amazonaws.com'
@@ -48,8 +42,7 @@ pipeline {
                 ]) {
 
                     sh '''
-                    echo "=== AWS Identity Check ==="
-
+                    echo "===== AWS ACCOUNT ====="
                     aws sts get-caller-identity
                     '''
                 }
@@ -67,7 +60,7 @@ pipeline {
                 ]) {
 
                     sh '''
-                    echo "=== ECR Login ==="
+                    echo "===== ECR LOGIN ====="
 
                     aws ecr get-login-password \
                     --region ${AWS_REGION} | \
@@ -114,26 +107,17 @@ pipeline {
 
         stage('Push Images') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
+                sh '''
+                docker push ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG}
 
-                    sh '''
-                    docker push ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG}
+                docker push ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG}
 
-                    docker push ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG}
+                docker push ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG}
 
-                    docker push ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG}
+                docker push ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG}
 
-                    docker push ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG}
-
-                    docker push ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG}
-                    '''
-                }
+                docker push ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG}
+                '''
             }
         }
 
@@ -142,56 +126,4 @@ pipeline {
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-
-                    sh '''
-                    aws eks update-kubeconfig \
-                    --region ${AWS_REGION} \
-                    --name ${EKS_CLUSTER}
-
-                    kubectl get nodes
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy Helm') {
-            steps {
-                sh '''
-                cd helm/streaming-app
-
-                helm upgrade \
-                --install \
-                streaming-app \
-                .
-                '''
-            }
-        }
-
-        stage('Verify Deployment') {
-            steps {
-                sh '''
-                kubectl get pods -n streaming
-
-                kubectl get svc -n streaming
-
-                helm list -A
-                '''
-            }
-        }
-    }
-
-    post {
-
-        success {
-            echo 'Streaming application deployed successfully'
-        }
-
-        failure {
-            echo 'Deployment failed - check Jenkins console output'
-        }
-    }
-}
+                        usernameVariable: 'AWS_
