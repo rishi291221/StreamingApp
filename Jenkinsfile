@@ -1,11 +1,13 @@
 pipeline {
     agent any
 
-    environment {
-        AWS_REGION = 'us-east-1'
-        AWS_ACCOUNT_ID = '206226812351'
-        ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    }
+   environment {
+    AWS_REGION = 'us-east-1'
+    ACCOUNT_ID = '909884060498'
+    EKS_CLUSTER = 'streaming-eks'
+
+    ECR_REGISTRY = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+}
 
     stages {
 
