@@ -1,145 +1,156 @@
-pipeline {
-    agent any
 
-    environment {
-        AWS_REGION = "us-east-1"
-        AWS_ACCOUNT_ID = "909884060498"
+services:
 
-        FRONTEND_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-frontend"
-        AUTH_REPO     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-auth"
-        ADMIN_REPO    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-admin"
-        CHAT_REPO     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-chat"
-        STREAM_REPO   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-service"
+  admin:
+    build:
+      context: ./backend/adminService
+      dockerfile: Dockerfile
+    image: streaming-admin:1.0.0
+    env_file:
+      - ./backend/adminService/.env
+    ports:
+      - "3003:3003"
 
-        IMAGE_TAG = "${BUILD_NUMBER}"
+version: "3.9"
 
-        CLUSTER_NAME = "streaming-eks"
-        NAMESPACE = "streaming"
-    }
+services:
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
 
-    stages {
 
-        stage('Checkout') {
-            steps {
-                git branch: 'main',
-                url: '<YOUR_GITHUB_REPO_URL>'
-            }
-        }
+  auth:
+    build:
+      context: ./backend/authService
 
-        stage('AWS Login') {
-            steps {
-                withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-secret-priya']
-                ]) {
+      dockerfile: Dockerfile
+    image: streaming-auth:1.0.0
+    env_file:
+      - ./backend/authService/.env
+    ports:
+      - "3001:3001"
 
-                    sh '''
-                    aws ecr get-login-password \
-                    --region $AWS_REGION \
-                    | docker login \
-                    --username AWS \
-                    --password-stdin \
-                    $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-                    '''
-                }
-            }
-        }
+  chat:
+    build:
+      context: ./backend/chatService
+      dockerfile: Dockerfile
+    image: streaming-chat:1.0.0
+    env_file:
+      - ./backend/chatService/.env
+    ports:
+      - "3004:3004"
 
-        stage('Build Images') {
-            steps {
-                sh '''
-                docker build -t streaming-frontend:${IMAGE_TAG} ./frontend
-                docker build -t streaming-auth:${IMAGE_TAG} ./backend/authService
-                docker build -t streaming-admin:${IMAGE_TAG} ./backend/adminService
-                docker build -t streaming-chat:${IMAGE_TAG} ./backend/chatService
-                docker build -t streaming-service:${IMAGE_TAG} ./backend/streamingService
-                '''
-            }
-        }
+  streaming:
+    build:
+      context: ./backend/streamingService
+      dockerfile: Dockerfile
+    image: streaming-service:1.0.0
+    env_file:
+      - ./backend/streamingService/.env
+    ports:
+      - "3002:3002"
 
-        stage('Tag Images') {
-            steps {
-                sh '''
-                docker tag streaming-frontend:${IMAGE_TAG} ${FRONTEND_REPO}:${IMAGE_TAG}
-                docker tag streaming-auth:${IMAGE_TAG} ${AUTH_REPO}:${IMAGE_TAG}
-                docker tag streaming-admin:${IMAGE_TAG} ${ADMIN_REPO}:${IMAGE_TAG}
-                docker tag streaming-chat:${IMAGE_TAG} ${CHAT_REPO}:${IMAGE_TAG}
-                docker tag streaming-service:${IMAGE_TAG} ${STREAM_REPO}:${IMAGE_TAG}
-                '''
-            }
-        }
+    depends_on:
+      - mongo
+    environment:
+      PORT: 3001
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-streamingapp}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      CLIENT_URLS: ${CLIENT_URLS:-http://localhost:3000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+    ports:
+      - "${AUTH_PORT:-3001}:3001"
 
-        stage('Push Images') {
-            steps {
-                sh '''
-                docker push ${FRONTEND_REPO}:${IMAGE_TAG}
-                docker push ${AUTH_REPO}:${IMAGE_TAG}
-                docker push ${ADMIN_REPO}:${IMAGE_TAG}
-                docker push ${CHAT_REPO}:${IMAGE_TAG}
-                docker push ${STREAM_REPO}:${IMAGE_TAG}
-                '''
-            }
-        }
+  streaming:
+    build:
+      context: ./backend
+      dockerfile: streamingService/Dockerfile
+    depends_on:
+      - mongo
+    environment:
+      PORT: 3002
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-streamingapp}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      CLIENT_URLS: ${CLIENT_URLS:-http://localhost:3000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_CDN_URL: ${AWS_CDN_URL:-}
+      STREAMING_PUBLIC_URL: ${STREAMING_PUBLIC_URL:-http://localhost:3002}
+    ports:
+      - "${STREAMING_PORT:-3002}:3002"
 
-        stage('Configure EKS') {
-            steps {
-                withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-secret-priya']
-                ]) {
+  admin:
+    build:
+      context: ./backend
+      dockerfile: adminService/Dockerfile
+    depends_on:
+      - mongo
+    environment:
+      PORT: 3003
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-streamingapp}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      CLIENT_URLS: ${CLIENT_URLS:-http://localhost:3000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_CDN_URL: ${AWS_CDN_URL:-}
+    ports:
+      - "${ADMIN_PORT:-3003}:3003"
 
-                    sh '''
-                    aws eks update-kubeconfig \
-                    --region $AWS_REGION \
-                    --name $CLUSTER_NAME
-                    '''
-                }
-            }
-        }
+  chat:
+    build:
+      context: ./backend
+      dockerfile: chatService/Dockerfile
+    depends_on:
+      - mongo
+    environment:
+      PORT: 3004
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-streamingapp}
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      CLIENT_URLS: ${CLIENT_URLS:-http://localhost:3000}
+    ports:
+      - "${CHAT_PORT:-3004}:3004"
 
-        stage('Helm Deploy') {
-            steps {
-                sh '''
-                helm upgrade --install streaming-app ./helm/streaming-app \
-                --namespace ${NAMESPACE} \
-                --create-namespace \
-                --set frontend.tag=${IMAGE_TAG} \
-                --set auth.tag=${IMAGE_TAG} \
-                --set admin.tag=${IMAGE_TAG} \
-                --set chat.tag=${IMAGE_TAG} \
-                --set streaming.tag=${IMAGE_TAG}
-                '''
-            }
-        }
 
-        stage('Validation') {
-            steps {
-                sh '''
-                kubectl get pods -n ${NAMESPACE}
-                kubectl get svc -n ${NAMESPACE}
+  frontend:
+    build:
+      context: ./frontend
 
-                kubectl rollout status deployment/auth -n ${NAMESPACE}
-                kubectl rollout status deployment/admin -n ${NAMESPACE}
-                kubectl rollout status deployment/chat -n ${NAMESPACE}
-                kubectl rollout status deployment/frontend -n ${NAMESPACE}
-                kubectl rollout status deployment/streaming -n ${NAMESPACE}
-                '''
-            }
-        }
-    }
+      dockerfile: Dockerfile
+    image: streaming-frontend:1.0.0
+    ports:
+      - "80:80"
+    depends_on:
+      - auth
+      - admin
+      - chat
+      - streaming
 
-    post {
+      args:
+        REACT_APP_AUTH_API_URL: ${REACT_APP_AUTH_API_URL:-http://localhost:3001/api}
+        REACT_APP_STREAMING_API_URL: ${REACT_APP_STREAMING_API_URL:-http://localhost:3002/api}
+        REACT_APP_STREAMING_PUBLIC_URL: ${REACT_APP_STREAMING_PUBLIC_URL:-http://localhost:3002}
+        REACT_APP_ADMIN_API_URL: ${REACT_APP_ADMIN_API_URL:-http://localhost:3003/api/admin}
+        REACT_APP_CHAT_API_URL: ${REACT_APP_CHAT_API_URL:-http://localhost:3004/api/chat}
+        REACT_APP_CHAT_SOCKET_URL: ${REACT_APP_CHAT_SOCKET_URL:-http://localhost:3004}
+    depends_on:
+      - auth
+      - streaming
+      - admin
+      - chat
+    ports:
+      - "3000:80"
 
-        success {
-            echo 'Deployment Successful'
-        }
+volumes:
+  mongo-data:
 
-        failure {
-            echo 'Deployment Failed'
-        }
-
-        always {
-            sh 'docker system prune -af || true'
-        }
-    }
-}
