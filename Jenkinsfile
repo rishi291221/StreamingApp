@@ -126,4 +126,39 @@ pipeline {
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+
+                    sh '''
+                    aws eks update-kubeconfig \
+                    --region ${AWS_REGION} \
+                    --name ${EKS_CLUSTER}
+
+                    kubectl get nodes
+                    '''
+                }
+            }
+        }
+
+        stage('Locate Helm Chart') {
+            steps {
+                sh '''
+                echo "===== WORKSPACE ====="
+
+                pwd
+
+                find . -name Chart.yaml
+
+                ls -R
+                '''
+            }
+        }
+
+        stage('Deploy Helm') {
+            steps {
+                sh '''
+                cd stream/helm/streaming-app || true
+
+                helm upgrade
