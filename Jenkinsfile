@@ -1,45 +1,150 @@
 pipeline {
+
     agent any
 
-    environment {
-        AWS_REGION = "us-east-1"
-        AWS_ACCOUNT_ID = "909884060498"
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
 
-        FRONTEND_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-frontend"
-        AUTH_REPO     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-auth"
-        ADMIN_REPO    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-admin"
-        CHAT_REPO     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-chat"
-        STREAM_REPO   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/streaming-service"
+    environment {
+        AWS_REGION = 'us-east-1'
+        AWS_ACCOUNT_ID = '909884060498'
+        ECR_REGISTRY = '909884060498.dkr.ecr.us-east-1.amazonaws.com'
+
+        EKS_CLUSTER = 'streaming-eks'
+        K8S_NAMESPACE = 'streaming'
+
+        // Existing Helm release is stored in default.
+        HELM_NAMESPACE = 'default'
+        HELM_RELEASE = 'streaming-app'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
+        KUBECONFIG = "${WORKSPACE}/.kube/config"
 
-        CLUSTER_NAME = "streaming-eks"
-        NAMESPACE = "streaming"
+        CHART_DIR = 'helm/streaming-app'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                git branch: 'main',
-                url: '<YOUR_GITHUB_REPO_URL>'
+                deleteDir()
+                checkout scm
+
+                sh '''
+                    set -eu
+
+                    echo "===== CHECKOUT ====="
+                    git log -1 --oneline
+                    git branch --show-current || true
+
+                    test -f Jenkinsfile
+                    test -d backend/authService
+                    test -d backend/adminService
+                    test -d backend/chatService
+                    test -d backend/streamingService
+                    test -d frontend
+
+                    test -f "$CHART_DIR/Chart.yaml"
+                    test -f "$CHART_DIR/values.yaml"
+                    test -d "$CHART_DIR/templates"
+
+                    echo "Repository structure verified."
+                '''
             }
         }
 
-        stage('AWS Login') {
+        stage('Verify Tools') {
+            steps {
+                sh '''
+                    set -eu
+
+                    echo "===== TOOL VERSIONS ====="
+
+                    git --version
+                    docker --version
+                    aws --version
+                    kubectl version --client
+                    helm version
+                '''
+            }
+        }
+
+        stage('AWS Identity And ECR Login') {
             steps {
                 withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-secret-priya']
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
                 ]) {
-
                     sh '''
-                    aws ecr get-login-password \
-                    --region $AWS_REGION \
-                    | docker login \
-                    --username AWS \
-                    --password-stdin \
-                    $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                        set -eu
+                        unset AWS_SESSION_TOKEN
+
+                        echo "===== AWS IDENTITY ====="
+
+                        aws sts get-caller-identity
+
+                        CURRENT_ACCOUNT=$(aws sts get-caller-identity \
+                            --query Account \
+                            --output text)
+
+                        if [ "$CURRENT_ACCOUNT" != "$AWS_ACCOUNT_ID" ]; then
+                            echo "ERROR: Jenkins is using AWS account $CURRENT_ACCOUNT"
+                            echo "Expected AWS account: $AWS_ACCOUNT_ID"
+                            exit 1
+                        fi
+
+                        echo "===== ECR LOGIN ====="
+
+                        aws ecr get-login-password \
+                            --region "$AWS_REGION" |
+                        docker login \
+                            --username AWS \
+                            --password-stdin "$ECR_REGISTRY"
+
+                        echo "AWS identity and ECR login verified."
+                    '''
+                }
+            }
+        }
+
+        stage('Verify ECR Repositories') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+                        unset AWS_SESSION_TOKEN
+
+                        echo "===== VERIFY ECR REPOSITORIES ====="
+
+                        for REPOSITORY in \
+                            streaming-auth \
+                            streaming-admin \
+                            streaming-chat \
+                            streaming-stream \
+                            streaming-frontend
+                        do
+                            echo "Checking $REPOSITORY"
+
+                            aws ecr describe-repositories \
+                                --repository-names "$REPOSITORY" \
+                                --region "$AWS_REGION" \
+                                >/dev/null
+                        done
+
+                        echo "All ECR repositories exist."
                     '''
                 }
             }
@@ -48,82 +153,254 @@ pipeline {
         stage('Build Images') {
             steps {
                 sh '''
-                docker build -t streaming-frontend:${IMAGE_TAG} ./frontend
-                docker build -t streaming-auth:${IMAGE_TAG} ./backend/authService
-                docker build -t streaming-admin:${IMAGE_TAG} ./backend/adminService
-                docker build -t streaming-chat:${IMAGE_TAG} ./backend/chatService
-                docker build -t streaming-service:${IMAGE_TAG} ./backend/streamingService
+                    set -eu
+
+                    echo "===== BUILD IMAGES ====="
+                    echo "Image tag: $IMAGE_TAG"
+
+                    docker build \
+                        -t streaming-auth:"$IMAGE_TAG" \
+                        backend/authService
+
+                    docker build \
+                        -t streaming-admin:"$IMAGE_TAG" \
+                        backend/adminService
+
+                    docker build \
+                        -t streaming-chat:"$IMAGE_TAG" \
+                        backend/chatService
+
+                    docker build \
+                        -t streaming-stream:"$IMAGE_TAG" \
+                        backend/streamingService
+
+                    docker build \
+                        -t streaming-frontend:"$IMAGE_TAG" \
+                        frontend
+
+                    echo "All five Docker images built."
                 '''
             }
         }
 
-        stage('Tag Images') {
-            steps {
-                sh '''
-                docker tag streaming-frontend:${IMAGE_TAG} ${FRONTEND_REPO}:${IMAGE_TAG}
-                docker tag streaming-auth:${IMAGE_TAG} ${AUTH_REPO}:${IMAGE_TAG}
-                docker tag streaming-admin:${IMAGE_TAG} ${ADMIN_REPO}:${IMAGE_TAG}
-                docker tag streaming-chat:${IMAGE_TAG} ${CHAT_REPO}:${IMAGE_TAG}
-                docker tag streaming-service:${IMAGE_TAG} ${STREAM_REPO}:${IMAGE_TAG}
-                '''
-            }
-        }
-
-        stage('Push Images') {
-            steps {
-                sh '''
-                docker push ${FRONTEND_REPO}:${IMAGE_TAG}
-                docker push ${AUTH_REPO}:${IMAGE_TAG}
-                docker push ${ADMIN_REPO}:${IMAGE_TAG}
-                docker push ${CHAT_REPO}:${IMAGE_TAG}
-                docker push ${STREAM_REPO}:${IMAGE_TAG}
-                '''
-            }
-        }
-
-        stage('Configure EKS') {
+        stage('Tag And Push Images') {
             steps {
                 withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-secret-priya']
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
                 ]) {
-
                     sh '''
-                    aws eks update-kubeconfig \
-                    --region $AWS_REGION \
-                    --name $CLUSTER_NAME
+                        set -eu
+                        unset AWS_SESSION_TOKEN
+
+                        echo "===== REFRESH ECR LOGIN ====="
+
+                        aws ecr get-login-password \
+                            --region "$AWS_REGION" |
+                        docker login \
+                            --username AWS \
+                            --password-stdin "$ECR_REGISTRY"
+
+                        echo "===== TAG IMAGES ====="
+
+                        docker tag \
+                            streaming-auth:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
+
+                        docker tag \
+                            streaming-admin:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
+
+                        docker tag \
+                            streaming-chat:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
+
+                        docker tag \
+                            streaming-stream:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
+
+                        docker tag \
+                            streaming-frontend:"$IMAGE_TAG" \
+                            "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
+
+                        echo "===== PUSH IMAGES ====="
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
+
+                        docker push \
+                            "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
+
+                        echo "All images pushed to ECR."
                     '''
                 }
             }
         }
 
-        stage('Helm Deploy') {
+        stage('Validate Helm Chart') {
             steps {
-                sh '''
-                helm upgrade --install streaming-app ./helm/streaming-app \
-                --namespace ${NAMESPACE} \
-                --create-namespace \
-                --set frontend.tag=${IMAGE_TAG} \
-                --set auth.tag=${IMAGE_TAG} \
-                --set admin.tag=${IMAGE_TAG} \
-                --set chat.tag=${IMAGE_TAG} \
-                --set streaming.tag=${IMAGE_TAG}
-                '''
+                withCredentials([
+                    string(
+                        credentialsId: 'mongodb-uri-priya',
+                        variable: 'MONGODB_URI'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+
+                        echo "===== HELM VALIDATION ====="
+
+                        helm lint "$CHART_DIR" \
+                            --set-string mongodb.uri="$MONGODB_URI" \
+                            --set-string auth.tag="$IMAGE_TAG" \
+                            --set-string admin.tag="$IMAGE_TAG" \
+                            --set-string chat.tag="$IMAGE_TAG" \
+                            --set-string streaming.tag="$IMAGE_TAG" \
+                            --set-string frontend.tag="$IMAGE_TAG"
+
+                        helm template \
+                            "$HELM_RELEASE" \
+                            "$CHART_DIR" \
+                            --namespace "$HELM_NAMESPACE" \
+                            --set-string mongodb.uri="$MONGODB_URI" \
+                            --set-string auth.tag="$IMAGE_TAG" \
+                            --set-string admin.tag="$IMAGE_TAG" \
+                            --set-string chat.tag="$IMAGE_TAG" \
+                            --set-string streaming.tag="$IMAGE_TAG" \
+                            --set-string frontend.tag="$IMAGE_TAG" \
+                            > rendered-streaming-app.yaml
+
+                        test -s rendered-streaming-app.yaml
+
+                        echo "Helm chart validated."
+                    '''
+                }
             }
         }
 
-        stage('Validation') {
+        stage('Deploy To EKS') {
             steps {
-                sh '''
-                kubectl get pods -n ${NAMESPACE}
-                kubectl get svc -n ${NAMESPACE}
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'mongodb-uri-priya',
+                        variable: 'MONGODB_URI'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+                        unset AWS_SESSION_TOKEN
 
-                kubectl rollout status deployment/auth -n ${NAMESPACE}
-                kubectl rollout status deployment/admin -n ${NAMESPACE}
-                kubectl rollout status deployment/chat -n ${NAMESPACE}
-                kubectl rollout status deployment/frontend -n ${NAMESPACE}
-                kubectl rollout status deployment/streaming -n ${NAMESPACE}
-                '''
+                        echo "===== CONFIGURE EKS ACCESS ====="
+
+                        mkdir -p "$(dirname "$KUBECONFIG")"
+
+                        aws eks update-kubeconfig \
+                            --region "$AWS_REGION" \
+                            --name "$EKS_CLUSTER" \
+                            --kubeconfig "$KUBECONFIG"
+
+                        kubectl get nodes
+
+                        echo "===== HELM DEPLOYMENT ====="
+
+                        helm upgrade \
+                            --install \
+                            "$HELM_RELEASE" \
+                            "$CHART_DIR" \
+                            --namespace "$HELM_NAMESPACE" \
+                            --set-string mongodb.uri="$MONGODB_URI" \
+                            --set-string auth.tag="$IMAGE_TAG" \
+                            --set-string admin.tag="$IMAGE_TAG" \
+                            --set-string chat.tag="$IMAGE_TAG" \
+                            --set-string streaming.tag="$IMAGE_TAG" \
+                            --set-string frontend.tag="$IMAGE_TAG" \
+                            --atomic \
+                            --wait \
+                            --timeout 10m
+
+                        helm status \
+                            "$HELM_RELEASE" \
+                            --namespace "$HELM_NAMESPACE"
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-secret-priya',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+                        unset AWS_SESSION_TOKEN
+
+                        echo "===== REFRESH EKS ACCESS ====="
+
+                        aws eks update-kubeconfig \
+                            --region "$AWS_REGION" \
+                            --name "$EKS_CLUSTER" \
+                            --kubeconfig "$KUBECONFIG"
+
+                        echo "===== VERIFY ROLLOUTS ====="
+
+                        for DEPLOYMENT in \
+                            auth \
+                            admin \
+                            chat \
+                            streaming \
+                            frontend
+                        do
+                            kubectl rollout status \
+                                deployment/"$DEPLOYMENT" \
+                                --namespace "$K8S_NAMESPACE" \
+                                --timeout=5m
+                        done
+
+                        echo "===== PODS ====="
+
+                        kubectl get pods \
+                            --namespace "$K8S_NAMESPACE" \
+                            -o wide
+
+                        echo "===== SERVICES ====="
+
+                        kubectl get services \
+                            --namespace "$K8S_NAMESPACE"
+
+                        echo "===== DEPLOYED IMAGES ====="
+
+                        kubectl get deployments \
+                            --namespace "$K8S_NAMESPACE" \
+                            -o jsonpath='{range .items[*]}{.metadata.name}{" -> "}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
+
+                        echo "===== HELM RELEASE ====="
+
+                        helm list \
+                            --namespace "$HELM_NAMESPACE"
+                    '''
+                }
             }
         }
     }
@@ -131,15 +408,34 @@ pipeline {
     post {
 
         success {
-            echo 'Deployment Successful'
+            echo """
+========================================
+STREAMINGAPP DEPLOYMENT SUCCESSFUL
+========================================
+AWS account      : ${AWS_ACCOUNT_ID}
+EKS cluster      : ${EKS_CLUSTER}
+Image tag        : ${IMAGE_TAG}
+Application NS   : ${K8S_NAMESPACE}
+Helm release     : ${HELM_RELEASE}
+Helm namespace   : ${HELM_NAMESPACE}
+========================================
+"""
         }
 
         failure {
-            echo 'Deployment Failed'
+            echo 'Deployment failed. Check the first failed Jenkins stage.'
         }
 
         always {
-            sh 'docker system prune -af || true'
+            sh '''
+                docker logout "$ECR_REGISTRY" || true
+            '''
+
+            archiveArtifacts(
+                artifacts: 'rendered-streaming-app.yaml',
+                allowEmptyArchive: true
+            )
         }
     }
 }
+``
