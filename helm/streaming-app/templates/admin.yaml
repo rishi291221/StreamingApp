@@ -22,13 +22,13 @@ spec:
 
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.admin.image }}:{{ .Values.admin.tag }}"
 
-      env:
-          - name: MONGO_URI
-              valueFrom:
-                secretKeyRef:
-                  name: mongodb-secret
-                  key: MONGO_URI
-
+    env:
+      - name: MONGO_URI
+        valueFrom:
+          secretKeyRef:
+            name: mongodb-secret
+            key: MONGO_URI
+            
         ports:
         - containerPort: {{ .Values.admin.port }}
 
