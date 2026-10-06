@@ -55,7 +55,7 @@ spec:
                 name: frontend-service
                 port:
                   number: 80
-=======
+
   - host: streamingapp.local
     http:
       paths:
