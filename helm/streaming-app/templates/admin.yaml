@@ -24,7 +24,10 @@ spec:
 
         env:
         - name: MONGO_URI
-          value: "{{ .Values.mongodb.uri }}"
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: MONGO_URI
 
         ports:
         - containerPort: {{ .Values.admin.port }}
