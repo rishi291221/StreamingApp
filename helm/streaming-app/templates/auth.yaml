@@ -24,10 +24,10 @@ spec:
 
         env:
         - name: MONGO_URI
-        valueFrom:
-           secretKeyRef:
-             name: mongodb-secret
-             key: MONGO_URI
+          valueFrom:
+             secretKeyRef:
+               name: mongodb-secret
+               key: MONGO_URI
         
         ports:
         - containerPort: {{ .Values.auth.port }}
