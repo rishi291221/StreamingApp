@@ -21,12 +21,12 @@ spec:
       - name: chat
 
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.chat.image }}:{{ .Values.chat.tag }}"
-env:
-  - name: MONGO_URI
-    valueFrom:
-      secretKeyRef:
-        name: mongodb-secret
-        key: MONGO_URI
+     env:
+      - name: MONGO_URI
+        valueFrom:
+          secretKeyRef:
+            name: mongodb-secret
+            key: MONGO_URI
 
         ports:
         - containerPort: {{ .Values.chat.port }}
