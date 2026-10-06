@@ -23,8 +23,11 @@ spec:
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.streaming.image }}:{{ .Values.streaming.tag }}"
 
         env:
-        - name: MONGO_URI
-          value: "{{ .Values.mongodb.uri }}"
+  - name: MONGO_URI
+    valueFrom:
+      secretKeyRef:
+        name: mongodb-secret
+        key: MONGO_URI
 
         ports:
         - containerPort: {{ .Values.streaming.port }}
