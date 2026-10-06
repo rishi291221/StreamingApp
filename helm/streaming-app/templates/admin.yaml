@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+  namespace: {{ .Values.namespace }}
+
+spec:
+  replicas: {{ .Values.admin.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: admin
+
+  template:
+    metadata:
+      labels:
+        app: admin
+
+    spec:
+      containers:
+      - name: admin
+
+        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.admin.image }}:{{ .Values.admin.tag }}"
+
+        env:
+        - name: MONGO_URI
+          value: "{{ .Values.mongodb.uri }}"
+
+        ports:
+        - containerPort: {{ .Values.admin.port }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+  namespace: {{ .Values.namespace }}
+
+spec:
+  selector:
+    app: admin
+
+  ports:
+  - port: {{ .Values.admin.port }}
+    targetPort: {{ .Values.admin.port }}
+
+  type: ClusterIP

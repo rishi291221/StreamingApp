@@ -1,0 +1,37 @@
+namespace: streaming
+
+accountId: "909884060498"
+region: "us-east-1"
+
+mongodb:
+  secretName: mongo-secretss
+
+auth:
+  replicaCount: 1
+  image: streaming-auth
+  tag: "1.0.0"
+  port: 3001
+
+admin:
+  replicaCount: 1
+  image: streaming-admin
+  tag: "1.0.0"
+  port: 3003
+
+chat:
+  replicaCount: 1
+  image: streaming-chat
+  tag: "1.0.0"
+  port: 3004
+
+streaming:
+  replicaCount: 1
+  image: streaming-stream
+  tag: "1.0.0"
+  port: 3002
+
+frontend:
+  replicaCount: 1
+  image: streaming-frontend
+  tag: "1.0.0"
+  port: 80

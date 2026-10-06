@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming
+  namespace: {{ .Values.namespace }}
+
+spec:
+  replicas: {{ .Values.streaming.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: streaming
+
+  template:
+    metadata:
+      labels:
+        app: streaming
+
+    spec:
+      containers:
+      - name: streaming
+
+        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.streaming.image }}:{{ .Values.streaming.tag }}"
+
+        env:
+        - name: MONGO_URI
+          value: "{{ .Values.mongodb.uri }}"
+
+        ports:
+        - containerPort: {{ .Values.streaming.port }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streaming-service
+  namespace: {{ .Values.namespace }}
+
+spec:
+  selector:
+    app: streaming
+
+  ports:
+  - port: {{ .Values.streaming.port }}
+    targetPort: {{ .Values.streaming.port }}
+
+  type: ClusterIP

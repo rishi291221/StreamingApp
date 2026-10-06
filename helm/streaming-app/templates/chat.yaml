@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat
+  namespace: {{ .Values.namespace }}
+
+spec:
+  replicas: {{ .Values.chat.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: chat
+
+  template:
+    metadata:
+      labels:
+        app: chat
+
+    spec:
+      containers:
+      - name: chat
+
+        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.chat.image }}:{{ .Values.chat.tag }}"
+
+        env:
+        - name: MONGO_URI
+          value: "{{ .Values.mongodb.uri }}"
+
+        ports:
+        - containerPort: {{ .Values.chat.port }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-service
+  namespace: {{ .Values.namespace }}
+
+spec:
+  selector:
+    app: chat
+
+  ports:
+  - port: {{ .Values.chat.port }}
+    targetPort: {{ .Values.chat.port }}
+
+  type: ClusterIP
