@@ -132,9 +132,11 @@ dist
 .pnp.*
 
 
+
 #terraform
 terraform/.terraform/providers/
 *.tfstate
 *.tfstate.*
 node_modules/
 .env
+
