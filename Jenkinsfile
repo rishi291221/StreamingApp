@@ -299,9 +299,59 @@ pipeline {
     post {
         success {
             echo 'STREAMINGAPP DEPLOYMENT SUCCESSFUL'
+            withCredentials([
+                string(
+                    credentialsId: 'teams-webhook-priya',
+                    variable: 'SLACK_WEBHOOK'
+                )
+            ]) {
+                script {
+                    def slackStatus = sh(
+                        returnStatus: true,
+                        script: '''
+                            set +x
+                            PAYLOAD=$(printf '{"text":"StreamingApp deployment SUCCESSFUL\\nJob: %s\\nBuild: #%s\\nEKS cluster: %s\\nNamespace: %s\\nBuild URL: %s"}' \
+                                "$JOB_NAME" "$BUILD_NUMBER" "$EKS_CLUSTER" "$K8S_NAMESPACE" "$BUILD_URL")
+                            curl --fail-with-body \
+                                --request POST \
+                                --header 'Content-Type: application/json' \
+                                --data "$PAYLOAD" \
+                                "$SLACK_WEBHOOK"
+                        '''
+                    )
+                    if (slackStatus != 0) {
+                        echo "WARNING: Slack success notification failed with exit code ${slackStatus}."
+                    }
+                }
+            }
         }
         failure {
             echo 'Deployment failed. Check the first failed Jenkins stage.'
+            withCredentials([
+                string(
+                    credentialsId: 'teams-webhook-priya',
+                    variable: 'SLACK_WEBHOOK'
+                )
+            ]) {
+                script {
+                    def slackStatus = sh(
+                        returnStatus: true,
+                        script: '''
+                            set +x
+                            PAYLOAD=$(printf '{"text":"StreamingApp deployment FAILED\\nJob: %s\\nBuild: #%s\\nCheck Jenkins Console Output: %s"}' \
+                                "$JOB_NAME" "$BUILD_NUMBER" "$BUILD_URL")
+                            curl --fail-with-body \
+                                --request POST \
+                                --header 'Content-Type: application/json' \
+                                --data "$PAYLOAD" \
+                                "$SLACK_WEBHOOK"
+                        '''
+                    )
+                    if (slackStatus != 0) {
+                        echo "WARNING: Slack failure notification failed with exit code ${slackStatus}."
+                    }
+                }
+            }
         }
         always {
             sh '''
