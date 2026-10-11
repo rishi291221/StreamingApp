@@ -124,36 +124,34 @@ stage('Build Images') {
 }
 
 
-        stage('Tag And Push Images') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-secret-priya',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
-                        unset AWS_SESSION_TOKEN || true
-                        aws ecr get-login-password --region "$AWS_REGION" | \
-                            docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-                        docker tag streaming-auth:"$IMAGE_TAG" "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
-                        docker tag streaming-admin:"$IMAGE_TAG" "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
-                        docker tag streaming-chat:"$IMAGE_TAG" "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
-                        docker tag streaming-stream:"$IMAGE_TAG" "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
-                        docker tag streaming-frontend:"$IMAGE_TAG" "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
+stage('Tag And Push Images') {
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'aws-secret-priya',
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+            )
+        ]) {
+            sh '''
+                set -eu
+                unset AWS_SESSION_TOKEN || true
 
-                        docker push "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
-                        docker push "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
-                        docker push "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
-                        docker push "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
-                        docker push "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
-                    '''
-                }
-            }
+                aws ecr get-login-password --region "$AWS_REGION" |
+                    docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+                docker push "$ECR_REGISTRY/streaming-auth:$IMAGE_TAG"
+                docker push "$ECR_REGISTRY/streaming-admin:$IMAGE_TAG"
+                docker push "$ECR_REGISTRY/streaming-chat:$IMAGE_TAG"
+                docker push "$ECR_REGISTRY/streaming-stream:$IMAGE_TAG"
+                docker push "$ECR_REGISTRY/streaming-frontend:$IMAGE_TAG"
+
+                echo "All five images pushed successfully with tag: $IMAGE_TAG"
+            '''
         }
+    }
+}
 
         stage('Validate Helm Chart') {
             steps {
