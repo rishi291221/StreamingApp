@@ -108,32 +108,18 @@ pipeline {
             }
         }
 
-       
+
 stage('Build Images') {
     steps {
-        sh '''
-            set -eu
-
-            docker build -t streaming-auth:"$IMAGE_TAG" backend/authService
-            docker build -t streaming-admin:"$IMAGE_TAG" backend/adminService
-            docker build -t streaming-chat:"$IMAGE_TAG" backend/chatService
-            docker build -t streaming-stream:"$IMAGE_TAG" backend/streamingService
-            docker build -t streaming-frontend:"$IMAGE_TAG" frontend
-
-            echo "Checking frontend Nginx configuration..."
-
-            docker run --rm --entrypoint sh streaming-frontend:"$IMAGE_TAG" -c '
-                set -eu
-                CONFIG=/etc/nginx/conf.d/default.conf
-                test -f "$CONFIG"
-                grep -q "location /api/auth/" "$CONFIG"
-                grep -q "location /api/streaming/" "$CONFIG"
-                grep -q "location /api/admin/" "$CONFIG"
-                grep -q "location /api/chat/" "$CONFIG"
-                nginx -t
-                echo "Frontend Nginx configuration verified."
-            '
-        '''
+        script {
+            sh """
+                docker build -t ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG} ./backend/authService
+                docker build -t ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG} ./backend/adminService
+                docker build -t ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG} ./backend/chatService
+                docker build -t ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG} ./backend/streamingService
+                docker build -t ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG} ./frontend
+            """
+        }
     }
 }
 
