@@ -114,11 +114,22 @@ stage('Build Images') {
     steps {
         script {
             sh """
+                set -eu
+
                 docker build -t ${ECR_REGISTRY}/streaming-auth:${IMAGE_TAG} ./backend/authService
                 docker build -t ${ECR_REGISTRY}/streaming-admin:${IMAGE_TAG} ./backend/adminService
                 docker build -t ${ECR_REGISTRY}/streaming-chat:${IMAGE_TAG} ./backend/chatService
                 docker build -t ${ECR_REGISTRY}/streaming-stream:${IMAGE_TAG} ./backend/streamingService
-                docker build -t ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG} ./frontend
+
+                docker build \
+                    --build-arg REACT_APP_AUTH_API_URL=/api/auth \
+                    --build-arg REACT_APP_STREAMING_API_URL=/api/streaming \
+                    --build-arg REACT_APP_STREAMING_PUBLIC_URL=/api/streaming \
+                    --build-arg REACT_APP_ADMIN_API_URL=/api/admin \
+                    --build-arg REACT_APP_CHAT_API_URL=/api/chat \
+                    --build-arg REACT_APP_CHAT_SOCKET_URL=ws://aebd84115175140f881c07678f233600-896491283.us-east-1.elb.amazonaws.com/api/chat \
+                    -t ${ECR_REGISTRY}/streaming-frontend:${IMAGE_TAG} \
+                    ./frontend
             """
         }
     }
