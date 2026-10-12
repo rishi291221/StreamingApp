@@ -6,29 +6,47 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'http://localhost:3000')
+const normalizeOrigin = (origin) => origin.trim().replace(/\/+$/, '');
+
+const allowedOrigins = (
+  process.env.CLIENT_URLS ||
+  process.env.CLIENT_URL ||
+  'http://localhost:3000'
+)
   .split(',')
-  .map((origin) => origin.trim())
+  .map(normalizeOrigin)
   .filter(Boolean);
 
+const isOriginAllowed = (origin) => {
+  if (!origin) {
+    return true;
+  }
+
+  return allowedOrigins.includes(normalizeOrigin(origin));
+};
+
+const corsOrigin = (origin, callback) => {
+  if (isOriginAllowed(origin)) {
+    return callback(null, true);
+  }
+
+  console.error('Streaming CORS rejected origin:', origin);
+  return callback(new Error('Not allowed by CORS'));
+};
+
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Middleware
 app.use(cookieParser());
 app.use(express.json());
 
 // Database connection
 const { connectDB } = require('./db');
+
 connectDB();
 
 // Routes
@@ -38,15 +56,17 @@ const streamingRoutes = require('./routes/streaming.route');
 app.use('/api/health', healthRoutes);
 app.use('/api/streaming', streamingRoutes);
 
-// Error handling middleware
+// Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
+  console.error('Streaming service error:', err);
+
+  res.status(err.status || 500).json({
     success: false,
-    message: 'Something went wrong on the server'
+    message: err.message || 'Internal server error',
   });
 });
 
 app.listen(PORT, () => {
   console.log(`Streaming service running on port ${PORT}`);
+  console.log('Allowed frontend origins:', allowedOrigins);
 });
