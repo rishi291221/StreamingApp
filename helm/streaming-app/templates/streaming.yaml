@@ -19,7 +19,6 @@ spec:
     spec:
       containers:
       - name: streaming
-
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.streaming.image }}:{{ .Values.streaming.tag }}"
 
         env:
@@ -28,6 +27,9 @@ spec:
             secretKeyRef:
               name: mongodb-secret
               key: MONGO_URI
+
+        - name: CLIENT_URLS
+          value: {{ .Values.frontendOrigin | quote }}
 
         ports:
         - containerPort: {{ .Values.streaming.port }}
