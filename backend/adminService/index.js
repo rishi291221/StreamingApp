@@ -1,50 +1,43 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const morgan = require('morgan');
 require('dotenv').config();
 
-const PORT = process.env.PORT || 3003;
-const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'http://localhost:3000')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
 const app = express();
+const PORT = process.env.PORT || 3001;
 
+// TEMPORARY: Allow all origins while testing Kubernetes deployment
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: true,
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(cookieParser());
+// Middleware
 app.use(express.json());
-app.use(morgan('dev'));
+app.use(cookieParser());
 
-const { connectDB } = require('./db');
-connectDB();
+// Database connection
+require('./util/conn');
 
-app.get('/api/health', (_, res) => {
-  res.json({ success: true, service: 'admin', status: 'ok' });
-});
+// Routes
+const healthCheckRoute = require('./routes/healthCheck.route');
+const userRoute = require('./routes/user.route');
 
-app.use('/api/admin', require('./routes/video.route'));
+app.use('/health', healthCheckRoute);
+app.use('/api/auth', userRoute);
 
+// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Admin service error:', err);
-  res.status(err.status || 500).json({
+  console.error(err.stack);
+
+  res.status(500).json({
     success: false,
-    message: err.message || 'Internal server error',
+    message: 'Something went wrong on the server'
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`Admin service listening on port ${PORT}`);
+  console.log(`Authentication Service Started at port ${PORT}`);
 });
