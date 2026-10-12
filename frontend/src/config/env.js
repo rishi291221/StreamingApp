@@ -32,4 +32,3 @@ export const CHAT_SOCKET_URL = getEnv(
   'REACT_APP_CHAT_SOCKET_URL',
   '/api/chat'
 );
-```
