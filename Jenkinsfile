@@ -19,6 +19,7 @@ pipeline {
         IMAGE_TAG = "${BUILD_NUMBER}"
         KUBECONFIG = "${WORKSPACE}/.kube/config"
         CHART_DIR = 'helm/streaming-app'
+        FRONTEND_ORIGIN = 'http://aebd84115175140f881c07678f233600-896491283.us-east-1.elb.amazonaws.com'
     }
 
     stages {
@@ -249,6 +250,7 @@ stage('Tag And Push Images') {
                             --namespace "$HELM_NAMESPACE" \
                             --create-namespace \
                             --set-string namespace="$K8S_NAMESPACE" \
+                            --set-string frontendOrigin="$FRONTEND_ORIGIN" \
                             --set-string auth.tag="$IMAGE_TAG" \
                             --set-string admin.tag="$IMAGE_TAG" \
                             --set-string chat.tag="$IMAGE_TAG" \
@@ -257,6 +259,7 @@ stage('Tag And Push Images') {
                             --atomic \
                             --wait \
                             --timeout 10m
+                            
 
                         helm status "$HELM_RELEASE" --namespace "$HELM_NAMESPACE"
                     '''
