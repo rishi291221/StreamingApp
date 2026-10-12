@@ -18,23 +18,21 @@ spec:
 
     spec:
       containers:
-      - name: chat
+        - name: chat
+          image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.chat.image }}:{{ .Values.chat.tag }}"
 
-        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.chat.image }}:{{ .Values.chat.tag }}"
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_URI
 
-        env:
-        - name: MONGO_URI
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-secret
-              key: MONGO_URI
+            - name: CLIENT_URLS
+              value: {{ .Values.frontendOrigin | quote }}
 
-          - name: CLIENT_URLS
-            value: {{ .Values.frontendOrigin | quote }}
-
-
-        ports:
-        - containerPort: {{ .Values.chat.port }}
+          ports:
+            - containerPort: {{ .Values.chat.port }}
 
 ---
 apiVersion: v1
@@ -48,7 +46,7 @@ spec:
     app: chat
 
   ports:
-  - port: {{ .Values.chat.port }}
-    targetPort: {{ .Values.chat.port }}
+    - port: {{ .Values.chat.port }}
+      targetPort: {{ .Values.chat.port }}
 
   type: ClusterIP
