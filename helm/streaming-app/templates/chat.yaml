@@ -29,6 +29,10 @@ spec:
               name: mongodb-secret
               key: MONGO_URI
 
+          - name: CLIENT_URLS
+            value: {{ .Values.frontendOrigin | quote }}
+
+
         ports:
         - containerPort: {{ .Values.chat.port }}
 
