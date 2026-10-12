@@ -1,3 +1,6 @@
+
+
+```javascript
 import axios from 'axios';
 import { STREAMING_API_URL, STREAMING_PUBLIC_URL } from '../config/env';
 
@@ -26,6 +29,7 @@ streamingApi.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
@@ -45,22 +49,23 @@ const buildPlaybackUrl = (value) => {
 
   const base = STREAMING_PUBLIC_URL.replace(/\/$/, '');
   const path = value.startsWith('/') ? value : `/${value}`;
+
   return `${base}${path}`;
 };
 
 export const streamingService = {
   async getFeaturedVideos() {
-    const { data } = await streamingApi.get('/streaming/videos/featured');
+    const { data } = await streamingApi.get('/videos/featured');
     return data.videos || [];
   },
 
   async getVideos(params = {}) {
-    const { data } = await streamingApi.get('/streaming/videos', { params });
+    const { data } = await streamingApi.get('/videos', { params });
     return data.videos || [];
   },
 
   async getVideoDetails(videoId) {
-    const { data } = await streamingApi.get(`/streaming/videos/${videoId}`);
+    const { data } = await streamingApi.get(`/videos/${videoId}`);
     return data.video;
   },
 
@@ -68,13 +73,17 @@ export const streamingService = {
     if (!videoOrPath) {
       return '';
     }
+
     if (typeof videoOrPath === 'string') {
       return buildPlaybackUrl(videoOrPath);
     }
+
     return buildPlaybackUrl(
       videoOrPath.streamUrl ||
-      videoOrPath.streamPath ||
-      `/api/streaming/stream/${videoOrPath._id}`,
+        videoOrPath.streamPath ||
+        `/api/streaming/stream/${videoOrPath._id}`,
     );
   },
 };
+```
+
