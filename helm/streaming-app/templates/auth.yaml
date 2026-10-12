@@ -19,20 +19,24 @@ spec:
     spec:
       containers:
       - name: auth
-
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.auth.image }}:{{ .Values.auth.tag }}"
 
         env:
         - name: MONGO_URI
           valueFrom:
-             secretKeyRef:
-               name: mongodb-secret
-               key: MONGO_URI
+            secretKeyRef:
+              name: mongodb-secret
+              key: MONGO_URI
+
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-jwt-secret
+              key: JWT_SECRET
 
         - name: CLIENT_URLS
           value: {{ .Values.frontendOrigin | quote }}
 
-        
         ports:
         - containerPort: {{ .Values.auth.port }}
 
