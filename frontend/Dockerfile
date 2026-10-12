@@ -1,3 +1,4 @@
+```dockerfile
 FROM node:18-alpine AS build
 
 WORKDIR /app
@@ -24,6 +25,13 @@ ENV REACT_APP_CHAT_SOCKET_URL=${REACT_APP_CHAT_SOCKET_URL}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS production
+
 COPY --from=build /app/build /usr/share/nginx/html
+
+# Replace the default Nginx configuration with our API proxy configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
+
 CMD ["nginx", "-g", "daemon off;"]
+```
