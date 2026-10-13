@@ -1,3 +1,4 @@
+```javascript
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,15 +11,12 @@ export const AdminRoute = ({ children }) => {
     return <div>Loading...</div>;
   }
 
-  if (!user || user.role !== 'admin') {
+  const role = String(user?.role || '').toLowerCase();
+
+  if (!user || role !== 'admin') {
     return <Navigate to="/browse" state={{ from: location }} replace />;
   }
 
   return children;
 };
-
-
-
-
-
-
+```
