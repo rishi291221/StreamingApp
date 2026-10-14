@@ -257,6 +257,18 @@ stage('Tag And Push Images') {
                             fi
                         done
 
+                      
+                        echo "Checking required JWT secret..."
+                        kubectl get secret auth-jwt-secret \
+                            --namespace "$K8S_NAMESPACE" >/dev/null
+
+                        kubectl get secret auth-jwt-secret \
+                            --namespace "$K8S_NAMESPACE" \
+                            -o jsonpath='{.data.JWT_SECRET}' |
+                            grep -q .
+
+                        echo "JWT secret check passed."
+
                         helm upgrade --install "$HELM_RELEASE" "$CHART_DIR" \
                             --namespace "$HELM_NAMESPACE" \
                             --create-namespace \
@@ -270,7 +282,7 @@ stage('Tag And Push Images') {
                             --atomic \
                             --wait \
                             --timeout 10m
-                            
+                                            
 
                         helm status "$HELM_RELEASE" --namespace "$HELM_NAMESPACE"
                     '''
