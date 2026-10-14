@@ -170,22 +170,25 @@ stage('Tag And Push Images') {
                 sh '''
                     set -eu
                     helm lint "$CHART_DIR" \
-                        --set-string namespace="$K8S_NAMESPACE" \
-                        --set-string auth.tag="$IMAGE_TAG" \
-                        --set-string admin.tag="$IMAGE_TAG" \
-                        --set-string chat.tag="$IMAGE_TAG" \
-                        --set-string streaming.tag="$IMAGE_TAG" \
-                        --set-string frontend.tag="$IMAGE_TAG"
+                --set-string namespace="$K8S_NAMESPACE" \
+                --set-string frontendOrigin="$FRONTEND_ORIGIN" \
+                --set-string auth.tag="$IMAGE_TAG" \
+                --set-string admin.tag="$IMAGE_TAG" \
+                --set-string chat.tag="$IMAGE_TAG" \
+                --set-string streaming.tag="$IMAGE_TAG" \
+                --set-string frontend.tag="$IMAGE_TAG"
 
-                    helm template "$HELM_RELEASE" "$CHART_DIR" \
-                        --namespace "$HELM_NAMESPACE" \
-                        --set-string namespace="$K8S_NAMESPACE" \
-                        --set-string auth.tag="$IMAGE_TAG" \
-                        --set-string admin.tag="$IMAGE_TAG" \
-                        --set-string chat.tag="$IMAGE_TAG" \
-                        --set-string streaming.tag="$IMAGE_TAG" \
-                        --set-string frontend.tag="$IMAGE_TAG" \
-                        > rendered-streaming-app.yaml
+            helm template "$HELM_RELEASE" "$CHART_DIR" \
+                --namespace "$HELM_NAMESPACE" \
+                --set-string namespace="$K8S_NAMESPACE" \
+                --set-string frontendOrigin="$FRONTEND_ORIGIN" \
+                --set-string auth.tag="$IMAGE_TAG" \
+                --set-string admin.tag="$IMAGE_TAG" \
+                --set-string chat.tag="$IMAGE_TAG" \
+                --set-string streaming.tag="$IMAGE_TAG" \
+                --set-string frontend.tag="$IMAGE_TAG" \
+                > rendered-streaming-app.yaml
+
                     test -s rendered-streaming-app.yaml
                 '''
             }
