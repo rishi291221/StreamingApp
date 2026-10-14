@@ -1,7 +1,12 @@
+
 namespace: streaming
 
 accountId: "909884060498"
 region: "us-east-1"
+
+# S3 thumbnail storage
+awsRegion: "us-east-1"
+awsS3Bucket: "streamingapp-thumbnails-909884060498-us-east-1"
 
 # Public URL of the deployed frontend
 frontendOrigin: "http://aebd84115175140f881c07678f233600-896491283.us-east-1.elb.amazonaws.com"
