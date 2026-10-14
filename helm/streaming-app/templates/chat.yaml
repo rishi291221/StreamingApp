@@ -28,6 +28,12 @@ spec:
                   name: mongodb-secret
                   key: MONGO_URI
 
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-jwt-secret
+                  key: JWT_SECRET
+
             - name: CLIENT_URLS
               value: {{ .Values.frontendOrigin | quote }}
 
