@@ -1,3 +1,4 @@
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,6 +30,12 @@ spec:
               name: mongodb-secret
               key: MONGO_URI
 
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: auth-jwt-secret
+              key: JWT_SECRET
+
         ports:
         - containerPort: {{ .Values.admin.port }}
 
@@ -48,3 +55,4 @@ spec:
     targetPort: {{ .Values.admin.port }}
 
   type: ClusterIP
+```
