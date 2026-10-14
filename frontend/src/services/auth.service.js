@@ -19,53 +19,59 @@ const getErrorMessage = (error, fallback) =>
 export const authService = {
   async login(email, password) {
     try {
-      const response = await api.post('/login', { email, password });
+      const response = await api.post('/login', {
+        email,
+        password,
+      });
+
       const data = response.data;
 
       if (data.success === false) {
         return {
+          ...data,
           success: false,
-          message: data.message || 'Login failed.',
+          error: data.message || 'Login failed.',
         };
       }
 
-      const user = data.user;
-      const token = data.token;
-
-      persistUser(user, token);
+      persistUser(data.user, data.token);
 
       return {
         ...data,
-        success: data.success ?? true,
-        user,
-        token,
+        success: true,
+        user: data.user,
+        token: data.token,
       };
     } catch (error) {
       return {
         success: false,
-        message: getErrorMessage(error, 'Login failed.'),
+        error: getErrorMessage(error, 'Login failed.'),
       };
     }
   },
 
   async register(userData) {
-    try {
-      const response = await api.post('/register', userData);
-      return response.data;
-    } catch (error) {
-      return {
-        success: false,
-        message: getErrorMessage(error, 'Registration failed.'),
-      };
+    const response = await api.post('/register', userData);
+    const data = response.data;
+
+    if (data.success === false) {
+      const error = new Error(
+        data.message || 'Registration failed.'
+      );
+      throw error;
     }
+
+    return data;
   },
 
-  async forgotPassword(email) {
+  async forgotPassword(payload) {
     try {
-      const payload =
-        typeof email === 'string' ? { email } : email;
+      const body =
+        typeof payload === 'string'
+          ? { email: payload }
+          : payload;
 
-      const response = await api.post('/forgetPassword', payload);
+      const response = await api.post('/forgetPassword', body);
       return response.data;
     } catch (error) {
       return {
@@ -82,4 +88,32 @@ export const authService = {
     try {
       const response = await api.get('/verify');
       return response.data;
-    } catch (error)
+    } catch (error) {
+      return {
+        success: false,
+        message: getErrorMessage(
+          error,
+          'Token verification failed.'
+        ),
+      };
+    }
+  },
+
+  logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  },
+
+  getCurrentUser() {
+    try {
+      const user = localStorage.getItem('user');
+      return user ? JSON.parse(user) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  isAuthenticated() {
+    return Boolean(localStorage.getItem('token'));
+  },
+};
