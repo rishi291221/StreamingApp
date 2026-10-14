@@ -43,7 +43,7 @@ spec:
           value: {{ .Values.awsS3Bucket | quote }}
 
         - name: AWS_REGION
-          value: {{ .Values.awsRegion | default "us-east-1" | quote }}
+          value: {{ .Values.awsRegion | default .Values.region | quote }}
 
 
         ports:
