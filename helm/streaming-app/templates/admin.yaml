@@ -1,3 +1,4 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,37 +18,36 @@ spec:
         app: admin
 
     spec:
+      serviceAccountName: admin-s3-sa
+
       containers:
-      - name: admin
+        - name: admin
+          image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.admin.image }}:{{ .Values.admin.tag }}"
 
-        image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.admin.image }}:{{ .Values.admin.tag }}"
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_URI
 
-        
-        env:
-        - name: MONGO_URI
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-secret
-              key: MONGO_URI
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-jwt-secret
+                  key: JWT_SECRET
 
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: auth-jwt-secret
-              key: JWT_SECRET
+            - name: CLIENT_URLS
+              value: {{ .Values.frontendOrigin | quote }}
 
-        - name: CLIENT_URLS
-          value: {{ .Values.frontendOrigin | quote }}
+            - name: AWS_S3_BUCKET
+              value: {{ .Values.awsS3Bucket | quote }}
 
-        - name: AWS_S3_BUCKET
-          value: {{ .Values.awsS3Bucket | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.awsRegion | default .Values.region | quote }}
 
-        - name: AWS_REGION
-          value: {{ .Values.awsRegion | default .Values.region | quote }}
-
-
-        ports:
-        - containerPort: {{ .Values.admin.port }}
+          ports:
+            - containerPort: {{ .Values.admin.port }}
 
 ---
 apiVersion: v1
@@ -61,7 +61,7 @@ spec:
     app: admin
 
   ports:
-  - port: {{ .Values.admin.port }}
-    targetPort: {{ .Values.admin.port }}
+    - port: {{ .Values.admin.port }}
+      targetPort: {{ .Values.admin.port }}
 
   type: ClusterIP
