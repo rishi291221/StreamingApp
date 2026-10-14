@@ -22,6 +22,7 @@ spec:
 
         image: "{{ .Values.accountId }}.dkr.ecr.{{ .Values.region }}.amazonaws.com/{{ .Values.admin.image }}:{{ .Values.admin.tag }}"
 
+        
         env:
         - name: MONGO_URI
           valueFrom:
@@ -34,6 +35,10 @@ spec:
             secretKeyRef:
               name: auth-jwt-secret
               key: JWT_SECRET
+
+        - name: CLIENT_URLS
+          value: {{ .Values.frontendOrigin | quote }}
+
 
         ports:
         - containerPort: {{ .Values.admin.port }}
