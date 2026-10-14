@@ -39,6 +39,12 @@ spec:
         - name: CLIENT_URLS
           value: {{ .Values.frontendOrigin | quote }}
 
+        - name: AWS_S3_BUCKET
+          value: {{ .Values.awsS3Bucket | quote }}
+
+        - name: AWS_REGION
+          value: {{ .Values.awsRegion | default "us-east-1" | quote }}
+
 
         ports:
         - containerPort: {{ .Values.admin.port }}
