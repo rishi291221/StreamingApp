@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export const AdminRoute = ({ children }) => {
+const AdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
 
@@ -19,3 +19,5 @@ export const AdminRoute = ({ children }) => {
   return children;
 };
 
+export { AdminRoute };
+export default AdminRoute;
